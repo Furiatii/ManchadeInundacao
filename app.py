@@ -268,6 +268,39 @@ if modo_app == "Automatico":
             key="auto_v",
         )
 
+    # Preview dos parametros que serao usados
+    with st.expander("Parametros que serao utilizados"):
+        from engine.auto_params import calcular_parametros_otimos as _calc_preview
+        from engine.config import METODOS_QMAX_LABELS, MODOS_RUPTURA, METODOS_ATENUACAO
+        _prev = _calc_preview(auto_h, auto_v, rio_len_km=5.0)
+        _k = _prev['manning_k']
+        st.dataframe(pd.DataFrame([
+            {"Parametro": "Comprimento da secao", "Valor": f"{_prev['comprimento_secao']} m",
+             "Base": "50*H + 20*sqrt(V) — HEC-RAS"},
+            {"Parametro": "Numero de secoes", "Valor": f"{_prev['n_secoes']}*",
+             "Base": "~1.5 secoes/km — ANA/LNEC"},
+            {"Parametro": "Simplificacao", "Valor": f"{_prev['n_simplificacao']}* segmentos",
+             "Base": "n_secoes / 2"},
+            {"Parametro": "Pontos por perfil", "Valor": str(_prev['n_pontos_perfil']),
+             "Base": "comp_secao / res_DEM (30m)"},
+            {"Parametro": "Manning k (Strickler)", "Valor": f"{_k} (n = {1/_k:.3f})",
+             "Base": "Estudo Rio Doce (SciELO 2018)"},
+            {"Parametro": "Fator de correcao", "Valor": str(_prev['fc']),
+             "Base": "Conservador — padrao ANA"},
+            {"Parametro": "Metodo Qmax",
+             "Valor": METODOS_QMAX_LABELS.get(_prev['metodo_qmax'], ''),
+             "Base": "max(Froehlich, MMC) — Wahl 2004"},
+            {"Parametro": "Ruptura",
+             "Valor": MODOS_RUPTURA.get(_prev['modo_ruptura'], ''),
+             "Base": "Pior caso conservador"},
+            {"Parametro": "Atenuacao",
+             "Valor": METODOS_ATENUACAO.get(_prev['metodo_atenuacao'], ''),
+             "Base": "Propagacao fisica — Ponce 1989"},
+            {"Parametro": "Buffer do poligono", "Valor": f"{_prev['buffer_m']:.0f} m",
+             "Base": "1.5 x resolucao DEM"},
+        ]), use_container_width=True, hide_index=True)
+        st.caption("*N. de secoes e simplificacao dependem do comprimento do rio (calculado ao executar). Estimativa com 5 km.")
+
     col_btn, col_clear = st.columns([5, 1])
     with col_btn:
         executar = st.button(
