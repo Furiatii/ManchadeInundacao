@@ -314,7 +314,45 @@ if modo_app == "Automatico":
         with st.expander("Parametros calculados automaticamente"):
             params = st.session_state.get('auto_params', {})
             if params:
-                st.text(resumo_parametros(params))
+                from engine.config import METODOS_QMAX_LABELS, MODOS_RUPTURA, METODOS_ATENUACAO
+                _p = params
+                _k = _p.get('manning_k', 20)
+                tabela_params = pd.DataFrame([
+                    {"Parametro": "Comprimento da secao",
+                     "Valor": f"{_p.get('comprimento_secao', '?')} m",
+                     "Justificativa": f"50 x H + 20 x sqrt(V_hm3) — HEC-RAS guidelines"},
+                    {"Parametro": "Numero de secoes",
+                     "Valor": str(_p.get('n_secoes', '?')),
+                     "Justificativa": f"~1.5 secoes/km — ANA/LNEC (21 p/ ~14km)"},
+                    {"Parametro": "Simplificacao",
+                     "Valor": f"{_p.get('n_simplificacao', '?')} segmentos",
+                     "Justificativa": "Metade das secoes preserva curvatura"},
+                    {"Parametro": "Pontos por perfil",
+                     "Valor": str(_p.get('n_pontos_perfil', '?')),
+                     "Justificativa": f"comp_secao / res_DEM — nao amostrar mais fino que o DEM"},
+                    {"Parametro": "Manning k (Strickler)",
+                     "Valor": f"{_k} (n = {1/_k:.3f})",
+                     "Justificativa": "Media rios BR — estudo Rio Doce (SciELO 2018)"},
+                    {"Parametro": "Fator de correcao",
+                     "Valor": str(_p.get('fc', '?')),
+                     "Justificativa": "Conservador, sem reducao de altura (padrao ANA)"},
+                    {"Parametro": "Metodo Qmax",
+                     "Valor": METODOS_QMAX_LABELS.get(_p.get('metodo_qmax', ''), _p.get('metodo_qmax', '?')),
+                     "Justificativa": "max(Froehlich, MMC) — menor incerteza (Wahl 2004)"},
+                    {"Parametro": "Modo de ruptura",
+                     "Valor": MODOS_RUPTURA.get(_p.get('modo_ruptura', ''), _p.get('modo_ruptura', '?')),
+                     "Justificativa": "Pior caso conservador para analise automatica"},
+                    {"Parametro": "Atenuacao",
+                     "Valor": METODOS_ATENUACAO.get(_p.get('metodo_atenuacao', ''), _p.get('metodo_atenuacao', '?')),
+                     "Justificativa": "Propagacao fisica do hidrograma (Ponce 1989)"},
+                    {"Parametro": "Piso adaptavel",
+                     "Valor": "Sim" if _p.get('piso_adaptavel') else "Nao",
+                     "Justificativa": "Melhor para barragens pequenas"},
+                    {"Parametro": "Buffer do poligono",
+                     "Valor": f"{_p.get('buffer_m', '?'):.0f} m",
+                     "Justificativa": "1.5 x resolucao DEM — fecha gaps entre pixels"},
+                ])
+                st.dataframe(tabela_params, use_container_width=True, hide_index=True)
                 st.caption(
                     f"DEM: {st.session_state.get('dem_fonte', '?')} | "
                     f"UTM: {datum_label_from_epsg(st.session_state.get('datum_auto', 0))} | "
