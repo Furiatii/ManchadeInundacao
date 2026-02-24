@@ -38,11 +38,28 @@ def gerar_poligono_mancha(cotas, alturas_secoes, xs, ys, buffer_m=50):
     margem_dir = []
 
     for idx, nivel_agua in enumerate(alturas_secoes):
-        inundados = [i for i in range(len(xs[idx])) if cotas[idx][i] <= nivel_agua]
-        if not inundados:
+        n_pts = len(xs[idx])
+        centro = n_pts // 2  # talvegue (canal do rio)
+
+        # Se o ponto central (rio) nao esta inundado, pular secao
+        if cotas[idx][centro] > nivel_agua:
             continue
-        i_esq = inundados[0]
-        i_dir = inundados[-1]
+
+        # Expandir para ESQUERDA a partir do centro — parar no primeiro
+        # ponto acima do nivel d'agua (morro/crista bloqueia a agua)
+        i_esq = centro
+        for i in range(centro - 1, -1, -1):
+            if cotas[idx][i] > nivel_agua:
+                break
+            i_esq = i
+
+        # Expandir para DIREITA a partir do centro — mesma logica
+        i_dir = centro
+        for i in range(centro + 1, n_pts):
+            if cotas[idx][i] > nivel_agua:
+                break
+            i_dir = i
+
         margem_esq.append((xs[idx][i_esq], ys[idx][i_esq]))
         margem_dir.append((xs[idx][i_dir], ys[idx][i_dir]))
 
@@ -54,12 +71,25 @@ def gerar_poligono_mancha(cotas, alturas_secoes, xs, ys, buffer_m=50):
             poly = poly.buffer(0)
         return poly.buffer(buffer_m)
 
-    # Fallback: buffer de pontos individuais
+    # Fallback: buffer de pontos continuamente conectados ao rio
     pontos_inundados = []
     for idx, nivel_agua in enumerate(alturas_secoes):
-        for i in range(len(xs[idx])):
-            if cotas[idx][i] <= nivel_agua:
-                pontos_inundados.append(Point(xs[idx][i], ys[idx][i]))
+        n_pts = len(xs[idx])
+        centro = n_pts // 2
+        if cotas[idx][centro] > nivel_agua:
+            continue
+        i_esq = centro
+        for i in range(centro - 1, -1, -1):
+            if cotas[idx][i] > nivel_agua:
+                break
+            i_esq = i
+        i_dir = centro
+        for i in range(centro + 1, n_pts):
+            if cotas[idx][i] > nivel_agua:
+                break
+            i_dir = i
+        for i in range(i_esq, i_dir + 1):
+            pontos_inundados.append(Point(xs[idx][i], ys[idx][i]))
 
     if not pontos_inundados:
         return None
