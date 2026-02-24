@@ -47,11 +47,11 @@ def calcular_parametros_otimos(h_barr, volume_m3, rio_len_km, dem_resolution=30.
     if n_pontos % 2 == 0:
         n_pontos += 1
 
-    # ── 5. Manning k (Strickler) ─────────────────────────────────────────
+    # ── 5. Manning n ───────────────────────────────────────────────────────
     # Rios brasileiros: n = 0.028-0.085 (estudo Rio Doce, SciELO).
-    # k=20 (n=0.05) e o valor medio/balanceado para uso rural misto.
-    # k=15 (n=0.067) era o default legado (conservador demais).
-    manning_k = 20.0
+    # n=0.05 e o valor medio/balanceado para uso rural misto.
+    # n=0.067 era o default legado (conservador demais).
+    manning_n = 0.05
 
     # ── 6. Fator de correcao ─────────────────────────────────────────────
     # fc=1 e o mais conservador (sem reducao de altura). Padrao ANA.
@@ -75,7 +75,8 @@ def calcular_parametros_otimos(h_barr, volume_m3, rio_len_km, dem_resolution=30.
         "n_secoes": n_secoes,
         "n_simplificacao": n_simplificacao,
         "n_pontos_perfil": n_pontos,
-        "manning_k": manning_k,
+        "manning_n": manning_n,
+        "manning_k": 1.0 / manning_n,  # k = 1/n para calculo interno
         "fc": fc,
         "metodo_qmax": metodo_qmax,
         "modo_ruptura": modo_ruptura,
@@ -93,7 +94,7 @@ def resumo_parametros(params):
         f"Secoes: {params['n_secoes']} x {params['comprimento_secao']}m",
         f"Simplificacao: {params['n_simplificacao']} segmentos",
         f"Pontos por perfil: {params['n_pontos_perfil']}",
-        f"Manning k: {params['manning_k']} (n = {1/params['manning_k']:.3f})",
+        f"Manning n: {params['manning_n']}",
         f"Fator de correcao: {params['fc']}",
         f"Metodo Qmax: {METODOS_QMAX_LABELS.get(params['metodo_qmax'], params['metodo_qmax'])}",
         f"Ruptura: {MODOS_RUPTURA.get(params['modo_ruptura'], params['modo_ruptura'])}",

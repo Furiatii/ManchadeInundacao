@@ -17,7 +17,7 @@ from streamlit_folium import st_folium
 
 from engine import (
     DATUM_OPTIONS, DEFAULT_DATUM, DEFAULT_N_SECOES, DEFAULT_N_SIMPLIFICACAO,
-    DEFAULT_COMPRIMENTO_SECAO, DEFAULT_MANNING_K, DEFAULT_FC,
+    DEFAULT_COMPRIMENTO_SECAO, DEFAULT_MANNING_N, DEFAULT_MANNING_K, DEFAULT_FC,
     DEFAULT_PISO_ADAPTAVEL,
     METODOS_QMAX_LABELS, MODOS_RUPTURA, METODOS_ATENUACAO,
     DPA_LIMITE_ALTO, DPA_LIMITE_MEDIO,
@@ -273,7 +273,7 @@ if modo_app == "Automatico":
         from engine.auto_params import calcular_parametros_otimos as _calc_preview
         from engine.config import METODOS_QMAX_LABELS, MODOS_RUPTURA, METODOS_ATENUACAO
         _prev = _calc_preview(auto_h, auto_v, rio_len_km=5.0)
-        _k = _prev['manning_k']
+        _n = _prev['manning_n']
         st.dataframe(pd.DataFrame([
             {"Parametro": "Comprimento da secao", "Valor": f"{_prev['comprimento_secao']} m",
              "Base": "50*H + 20*sqrt(V) — HEC-RAS"},
@@ -283,7 +283,7 @@ if modo_app == "Automatico":
              "Base": "n_secoes / 2"},
             {"Parametro": "Pontos por perfil", "Valor": str(_prev['n_pontos_perfil']),
              "Base": "comp_secao / res_DEM (30m)"},
-            {"Parametro": "Manning k (Strickler)", "Valor": f"{_k} (n = {1/_k:.3f})",
+            {"Parametro": "Manning n", "Valor": f"{_n:.3f}",
              "Base": "Estudo Rio Doce (SciELO 2018)"},
             {"Parametro": "Fator de correcao", "Valor": str(_prev['fc']),
              "Base": "Conservador — padrao ANA"},
@@ -316,7 +316,7 @@ if modo_app == "Automatico":
             'h', 'v', 'lat', 'lon',
             'dem_path', 'dem_res', 'dem_crs', 'dem_fonte',
             'tracado_path', 'rio_nome', 'rios_encontrados', 'rios_fonte',
-            'secoes', 'ds', 'k_por_secao',
+            'secoes', 'ds', 'n_por_secao',
             'alturas', 'qs', 'cotas', 'xs', 'ys', 'poligono', 'df_relatorio',
         ]
         for k in keys_to_clear:
@@ -349,7 +349,7 @@ if modo_app == "Automatico":
             if params:
                 from engine.config import METODOS_QMAX_LABELS, MODOS_RUPTURA, METODOS_ATENUACAO
                 _p = params
-                _k = _p.get('manning_k', 20)
+                _n = _p.get('manning_n', 0.05)
                 tabela_params = pd.DataFrame([
                     {"Parametro": "Comprimento da secao",
                      "Valor": f"{_p.get('comprimento_secao', '?')} m",
@@ -363,8 +363,8 @@ if modo_app == "Automatico":
                     {"Parametro": "Pontos por perfil",
                      "Valor": str(_p.get('n_pontos_perfil', '?')),
                      "Justificativa": f"comp_secao / res_DEM — nao amostrar mais fino que o DEM"},
-                    {"Parametro": "Manning k (Strickler)",
-                     "Valor": f"{_k} (n = {1/_k:.3f})",
+                    {"Parametro": "Manning n",
+                     "Valor": f"{_n:.3f}",
                      "Justificativa": "Media rios BR — estudo Rio Doce (SciELO 2018)"},
                     {"Parametro": "Fator de correcao",
                      "Valor": str(_p.get('fc', '?')),
@@ -673,34 +673,39 @@ else:
     )
 
     if manning_modo == "Uniforme":
-        manning_k = st.sidebar.number_input(
-            "Coeficiente de Manning (k)",
-            min_value=1.0, max_value=100.0, value=float(DEFAULT_MANNING_K), step=0.5,
+        manning_n = st.sidebar.number_input(
+            "Coeficiente de Manning (n)",
+            min_value=0.01, max_value=0.2, value=float(DEFAULT_MANNING_N),
+            step=0.001, format="%.3f",
         )
-        k_por_secao = None
+        manning_k = 1.0 / manning_n
+        n_por_secao = None
     else:
-        manning_k = float(DEFAULT_MANNING_K)
+        manning_n = float(DEFAULT_MANNING_N)
+        manning_k = 1.0 / manning_n
         st.sidebar.info(
-            "Defina os valores de K por secao na tabela abaixo (apos gerar secoes)."
+            "Defina os valores de n por secao na tabela abaixo (apos gerar secoes)."
         )
         if 'secoes' in st.session_state:
             n_sec = len(st.session_state['secoes'])
-            if 'k_por_secao' not in st.session_state:
-                st.session_state['k_por_secao'] = [float(DEFAULT_MANNING_K)] * n_sec
-            df_k = pd.DataFrame({
+            if 'n_por_secao' not in st.session_state:
+                st.session_state['n_por_secao'] = [float(DEFAULT_MANNING_N)] * n_sec
+            df_n = pd.DataFrame({
                 'Secao': [f"S{i+1}" for i in range(n_sec)],
-                'K': st.session_state['k_por_secao'],
+                'n': st.session_state['n_por_secao'],
             })
-            df_k_editado = st.sidebar.data_editor(
-                df_k, hide_index=True, width="stretch",
+            df_n_editado = st.sidebar.data_editor(
+                df_n, hide_index=True, width="stretch",
                 column_config={
-                    "K": st.column_config.NumberColumn(min_value=1.0, max_value=100.0),
+                    "n": st.column_config.NumberColumn(
+                        min_value=0.01, max_value=0.2, format="%.3f",
+                    ),
                 },
             )
-            k_por_secao = df_k_editado['K'].tolist()
-            st.session_state['k_por_secao'] = k_por_secao
+            n_por_secao = df_n_editado['n'].tolist()
+            st.session_state['n_por_secao'] = n_por_secao
         else:
-            k_por_secao = None
+            n_por_secao = None
 
     # ── Tabs ─────────────────────────────────────────────────────────────
     tab1, tab2, tab3, tab4 = st.tabs([
@@ -1083,6 +1088,8 @@ else:
                     cotas_result, dp, xs, ys = cotas_secoes(secoes, dem, datum)
 
                     brecha_avanc = st.session_state.get('brecha', {})
+                    # Converter n por secao → k por secao (k = 1/n)
+                    k_por_secao = [1.0 / ni for ni in n_por_secao] if n_por_secao else None
                     alturas, qs, velocidades, tempos_chegada, hidrogramas = altura_de_agua_secoes(
                         ds, dp, cotas_result, st.session_state['qmax_barr'],
                         v, h, fc=fc, k=manning_k,
