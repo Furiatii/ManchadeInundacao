@@ -8,20 +8,54 @@ import zipfile
 import numpy as np
 import pandas as pd
 import geopandas
-from shapely.geometry import Point, MultiPoint, Polygon
+from shapely.geometry import Point, MultiPoint, Polygon, LineString
 from shapely.ops import unary_union
 
 from .config import DEFAULT_DATUM
 
 
+def _limites_inundacao(cotas_secao, nivel_agua, n_pts):
+    """Encontra limites de inundacao expandindo a partir do talvegue real.
+
+    Usa o ponto mais baixo proximo ao centro (nao o centro geometrico)
+    como ponto de partida, garantindo que a inundacao comece no rio real.
+    Expande para cada lado e para quando encontra terreno acima da agua.
+
+    Returns:
+        (i_esq, i_dir, centro) ou None se secao nao esta inundada.
+    """
+    # Buscar o talvegue real: ponto mais baixo na metade central da secao
+    margem = n_pts // 4
+    ini = max(0, n_pts // 2 - margem)
+    fim = min(n_pts, n_pts // 2 + margem + 1)
+    centro = ini + int(np.argmin(cotas_secao[ini:fim]))
+
+    if cotas_secao[centro] > nivel_agua:
+        return None
+
+    # Expandir para ESQUERDA — parar no primeiro ponto acima da agua
+    i_esq = centro
+    for i in range(centro - 1, -1, -1):
+        if cotas_secao[i] > nivel_agua:
+            break
+        i_esq = i
+
+    # Expandir para DIREITA — mesma logica
+    i_dir = centro
+    for i in range(centro + 1, n_pts):
+        if cotas_secao[i] > nivel_agua:
+            break
+        i_dir = i
+
+    return i_esq, i_dir, centro
+
+
 def gerar_poligono_mancha(cotas, alturas_secoes, xs, ys, buffer_m=50):
     """Gera o poligono da mancha de inundacao.
 
-    Conecta os limites laterais de inundacao de cada secao (margem esquerda
-    e margem direita) formando um poligono continuo ao longo do rio.
-    Aplica buffer para suavizar e fechar gaps entre secoes.
-
-    Fallback: se menos de 2 secoes tem inundacao, usa buffer de pontos.
+    Abordagem: buffer individual de cada segmento inundado + corredor
+    central ao longo do rio. Isso evita que linhas retas entre secoes
+    cruzem terreno elevado (problema da mancha "subindo morro").
 
     Args:
         cotas: elevacoes do terreno por secao
@@ -33,69 +67,35 @@ def gerar_poligono_mancha(cotas, alturas_secoes, xs, ys, buffer_m=50):
     Returns:
         geometry: poligono Shapely da mancha de inundacao, ou None
     """
-    # Para cada secao, encontrar limites esquerdo e direito da inundacao
-    margem_esq = []
-    margem_dir = []
+    partes = []
+    centros_rio = []
 
     for idx, nivel_agua in enumerate(alturas_secoes):
         n_pts = len(xs[idx])
-        centro = n_pts // 2  # talvegue (canal do rio)
-
-        # Se o ponto central (rio) nao esta inundado, pular secao
-        if cotas[idx][centro] > nivel_agua:
+        lim = _limites_inundacao(cotas[idx], nivel_agua, n_pts)
+        if lim is None:
             continue
 
-        # Expandir para ESQUERDA a partir do centro — parar no primeiro
-        # ponto acima do nivel d'agua (morro/crista bloqueia a agua)
-        i_esq = centro
-        for i in range(centro - 1, -1, -1):
-            if cotas[idx][i] > nivel_agua:
-                break
-            i_esq = i
+        i_esq, i_dir, centro = lim
 
-        # Expandir para DIREITA a partir do centro — mesma logica
-        i_dir = centro
-        for i in range(centro + 1, n_pts):
-            if cotas[idx][i] > nivel_agua:
-                break
-            i_dir = i
+        # Segmento inundado nesta secao (LineString)
+        coords = [(xs[idx][i], ys[idx][i]) for i in range(i_esq, i_dir + 1)]
+        if len(coords) >= 2:
+            partes.append(LineString(coords).buffer(buffer_m))
+        elif len(coords) == 1:
+            partes.append(Point(coords[0]).buffer(buffer_m))
 
-        margem_esq.append((xs[idx][i_esq], ys[idx][i_esq]))
-        margem_dir.append((xs[idx][i_dir], ys[idx][i_dir]))
+        # Ponto central do rio (para conectar secoes)
+        centros_rio.append((xs[idx][centro], ys[idx][centro]))
 
-    # Se pelo menos 2 secoes tem inundacao, criar poligono por contorno
-    if len(margem_esq) >= 2:
-        contorno = margem_esq + list(reversed(margem_dir))
-        poly = Polygon(contorno)
-        if not poly.is_valid:
-            poly = poly.buffer(0)
-        return poly.buffer(buffer_m)
-
-    # Fallback: buffer de pontos continuamente conectados ao rio
-    pontos_inundados = []
-    for idx, nivel_agua in enumerate(alturas_secoes):
-        n_pts = len(xs[idx])
-        centro = n_pts // 2
-        if cotas[idx][centro] > nivel_agua:
-            continue
-        i_esq = centro
-        for i in range(centro - 1, -1, -1):
-            if cotas[idx][i] > nivel_agua:
-                break
-            i_esq = i
-        i_dir = centro
-        for i in range(centro + 1, n_pts):
-            if cotas[idx][i] > nivel_agua:
-                break
-            i_dir = i
-        for i in range(i_esq, i_dir + 1):
-            pontos_inundados.append(Point(xs[idx][i], ys[idx][i]))
-
-    if not pontos_inundados:
+    if not partes:
         return None
 
-    buffered = [p.buffer(buffer_m) for p in pontos_inundados]
-    return unary_union(buffered)
+    # Corredor ao longo do rio conecta as secoes entre si
+    if len(centros_rio) >= 2:
+        partes.append(LineString(centros_rio).buffer(buffer_m * 0.5))
+
+    return unary_union(partes)
 
 
 def mancha_to_shapefile(poligono, out_path, datum=DEFAULT_DATUM):
